@@ -8,18 +8,13 @@ import shutil
 import logging
 import urllib.request
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class DataClipper:
-    """
-    A class to process and clip raster and vector datasets based on a given GeoJSON boundary.
-    """
     def __init__(self, yaml_config_path, geojson_clip_path, output_folder):
-        """
-        Initialize DataClipper with YAML configuration, GeoJSON clip file, and output directory.
-        """
         self.yaml_config_path = Path(yaml_config_path)
         self.geojson_clip_path = geojson_clip_path
         self.output_folder = Path(output_folder)
@@ -30,20 +25,14 @@ class DataClipper:
         logging.info("Initialization complete.")
 
     def validate_path(self, path):
-        """
-        Validate if a given file path exists.
-        """
         p = Path(path)
         if not p.exists():
             logging.error("File not found: %s", path)
             raise FileNotFoundError(f"File not found: {path}")
         logging.info("Validated path: %s", path)
         return p
-    
+
     def robust_download(self, url, local_path, retries=3):
-        """
-        Download a file from a URL with support for retries and skipping if already downloaded.
-        """
         if local_path.exists():
             logging.info("File already exists, skipping download: %s", local_path)
             return
@@ -72,27 +61,27 @@ class DataClipper:
                     raise
 
     def extract_zip(self, zip_path):
-        """
-        Extracts a ZIP file and returns the path to extracted directory.
-        """
         extract_dir = zip_path.with_suffix('')
+        if extract_dir.exists():
+            logging.info("ZIP already extracted, skipping: %s", extract_dir)
+            return extract_dir
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_dir)
         logging.info("Extracted ZIP file to: %s", extract_dir)
         return extract_dir
 
     def clip_vector(self, input_path, output_path):
-        """
-        Clip vector data using the given GeoJSON boundary and save it to output.
-        """
+        if output_path.with_suffix('.geojson').exists():
+            logging.info("Vector file already clipped, skipping: %s", output_path)
+            return
+        
         logging.info("Clipping vector data: %s", input_path)
         gdf = gpd.read_file(input_path)
         if gdf.crs != self.geojson.crs:
             logging.info("Reprojecting vector data to match GeoJSON CRS.")
             gdf = gdf.to_crs(self.geojson.crs)
-        spatial_index = gdf.sindex
-        possible_matches = gdf.iloc[list(spatial_index.intersection(self.geojson.total_bounds))]
-        clipped = gpd.overlay(possible_matches, self.geojson, how="intersection")
+
+        clipped = gdf.clip(self.geojson)
         if clipped.empty:
             logging.warning("Clipped vector data is empty: %s", input_path)
         else:
@@ -100,9 +89,10 @@ class DataClipper:
         logging.info("Vector data clipped and saved: %s", output_path)
 
     def clip_raster(self, input_path, output_path):
-        """
-        Clip raster data using the given GeoJSON boundary and save it to output.
-        """
+        if output_path.exists():
+            logging.info("Raster file already clipped, skipping: %s", output_path)
+            return
+        
         logging.info("Clipping raster data: %s", input_path)
         with rasterio.open(input_path) as src:
             if self.geojson.crs != src.crs:
@@ -129,14 +119,11 @@ class DataClipper:
         logging.info("Raster clipped and saved at %s", output_path)
 
     def process(self):
-        """
-        Process the datasets listed in the YAML configuration file.
-        """
         logging.info("Processing datasets from YAML configuration.")
         with open(self.validate_path(self.yaml_config_path), 'r') as f:
             datasets = yaml.safe_load(f)
 
-        for data in datasets:
+        def process_dataset(data):
             name = data.get("name")
             source = data.get("source")
             path_or_url = data.get("path")
@@ -150,12 +137,12 @@ class DataClipper:
 
             if input_path.suffix.lower() == ".zip":
                 extracted_dir = self.extract_zip(input_path)
+                tif_files = list(extracted_dir.glob("*.tif"))
                 shapefiles = list(extracted_dir.glob("*.shp"))
-                if shapefiles:
-                    input_path = shapefiles[0]
-                else:
-                    logging.warning("No shapefile found in extracted ZIP: %s", input_path)
-                    continue
+                input_path = tif_files[0] if tif_files else shapefiles[0] if shapefiles else None
+                if input_path is None:
+                    logging.warning("No valid files found in extracted ZIP: %s", input_path)
+                    return
 
             output_path = self.output_folder / f"{name}_clipped"
             output_path.mkdir(parents=True, exist_ok=True)
@@ -164,11 +151,14 @@ class DataClipper:
                 if input_path.suffix.lower() in [".tif", ".tiff", ".img", ".vrt"]:
                     self.clip_raster(input_path, output_path / f"{name}_clipped.tif")
                 elif input_path.suffix.lower() in [".shp", ".geojson", ".gpkg", ".kml"]:
-                    self.clip_vector(input_path, output_path / f"{name}_clipped{input_path.suffix}")
+                    self.clip_vector(input_path, output_path / f"{name}_clipped.geojson")
                 else:
                     logging.warning("Unsupported file format: %s", input_path)
             except Exception as e:
                 logging.error("Error processing %s: %s", name, e)
+
+        with ThreadPoolExecutor() as executor:
+            executor.map(process_dataset, datasets)
 
 if __name__ == "__main__":
     import argparse
@@ -182,4 +172,3 @@ if __name__ == "__main__":
 
     clipper = DataClipper(args.yaml_config, args.geojson_clip, args.output_folder)
     clipper.process()
-
