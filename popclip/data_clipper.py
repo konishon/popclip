@@ -94,7 +94,7 @@ class DataClipper:
         if clipped.empty:
             logging.warning("Clipped vector data is empty: %s", input_path)
         else:
-            clipped.to_file(output_path, driver="GPKG")
+            clipped.to_file(output_path.with_suffix('.geojson'), driver="GeoJSON")
         logging.info("Vector data clipped and saved: %s", output_path)
 
     def clip_raster(self, input_path, output_path):
