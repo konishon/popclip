@@ -1,0 +1,59 @@
+- name: population_2020
+  source: WorldPop
+  path: https://data.worldpop.org/GIS/Population/Global_2000_2020/2020/0_Mosaicked/ppp_2020_1km_Aggregated.tif
+  description: "Population raster data for 2020."
+  time_period: "January 01, 2001 - January 01, 2001"
+  update_frequency: "Never"
+  location: ["Nepal", "Nepal Earthquake"]
+  contributor: "OCHA Regional Office for Asia and the Pacific (ROAP)"
+  methodology: "This data has been prepared by merging sheet-wise individual layers available from Survey Department, Nepal."
+  caveats: "Use with caution, ensure proper validation."
+  license: "Other: See these Terms of Use."
+
+- name: population_2019
+  source: WorldPop
+  path: https://data.worldpop.org/GIS/Population/Global_2000_2020/2019/0_Mosaicked/ppp_2019_1km_Aggregated.tif
+  description: "Population raster data for 2019."
+  time_period: "January 01, 2001 - January 01, 2001"
+  update_frequency: "Never"
+  location: ["Nepal", "Nepal Earthquake"]
+  contributor: "OCHA Regional Office for Asia and the Pacific (ROAP)"
+  methodology: "This data has been prepared by merging sheet-wise individual layers available from Survey Department, Nepal."
+  caveats: "Use with caution, ensure proper validation."
+  license: "Other: See these Terms of Use."
+
+- name: population_2018
+  source: WorldPop
+  path: https://data.worldpop.org/GIS/Population/Global_2000_2020/2018/0_Mosaicked/ppp_2018_1km_Aggregated.tif
+  description: "Population raster data for 2018."
+  time_period: "January 01, 2001 - January 01, 2001"
+  update_frequency: "Never"
+  location: ["Nepal", "Nepal Earthquake"]
+  contributor: "OCHA Regional Office for Asia and the Pacific (ROAP)"
+  methodology: "This data has been prepared by merging sheet-wise individual layers available from Survey Department, Nepal."
+  caveats: "Use with caution, ensure proper validation."
+  license: "Other: See these Terms of Use."
+
+- name: watercourses_primary
+  source: Humanitarian Data Exchange
+  path: https://data.humdata.org/dataset/248e54c6-f113-4bd3-8083-a5d4a9eb5f79/resource/c49ef799-201f-45a0-a8ee-f9c35bdafa01/download/npl-watcrsl-hydro-25k-50k-sdn-wgs84-shp.zip
+  description: "Primary watercourses dataset for Nepal."
+  time_period: "January 01, 2001 - January 01, 2001"
+  update_frequency: "Never"
+  location: ["Nepal", "Nepal Earthquake"]
+  contributor: "OCHA Regional Office for Asia and the Pacific (ROAP)"
+  methodology: "This data has been prepared by merging sheet-wise individual layers available from Survey Department, Nepal."
+  caveats: "Use with caution, ensure proper validation."
+  license: "Other: See these Terms of Use."
+
+- name: watercourses_secondary
+  source: Humanitarian Data Exchange
+  path: https://data.humdata.org/dataset/248e54c6-f113-4bd3-8083-a5d4a9eb5f79/resource/38765f7b-694c-4efa-b0b3-3982ce997eda/download/npl-watcrsa-hydro-25k-50k-sdn-wgs84-shp.zip
+  description: "Secondary watercourses dataset for Nepal."
+  time_period: "January 01, 2001 - January 01, 2001"
+  update_frequency: "Never"
+  location: ["Nepal", "Nepal Earthquake"]
+  contributor: "OCHA Regional Office for Asia and the Pacific (ROAP)"
+  methodology: "This data has been prepared by merging sheet-wise individual layers available from Survey Department, Nepal."
+  caveats: "Use with caution, ensure proper validation."
+  license: "Other: See these Terms of Use."
