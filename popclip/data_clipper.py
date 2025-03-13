@@ -90,7 +90,9 @@ class DataClipper:
         if gdf.crs != self.geojson.crs:
             logging.info("Reprojecting vector data to match GeoJSON CRS.")
             gdf = gdf.to_crs(self.geojson.crs)
-        clipped = gpd.overlay(gdf, self.geojson, how="intersection")
+        spatial_index = gdf.sindex
+        possible_matches = gdf.iloc[list(spatial_index.intersection(self.geojson.total_bounds))]
+        clipped = gpd.overlay(possible_matches, self.geojson, how="intersection")
         if clipped.empty:
             logging.warning("Clipped vector data is empty: %s", input_path)
         else:
@@ -180,3 +182,4 @@ if __name__ == "__main__":
 
     clipper = DataClipper(args.yaml_config, args.geojson_clip, args.output_folder)
     clipper.process()
+
