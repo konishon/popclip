@@ -42,8 +42,12 @@ class DataClipper:
     
     def robust_download(self, url, local_path, retries=3):
         """
-        Download a file from a URL with support for retries.
+        Download a file from a URL with support for retries and skipping if already downloaded.
         """
+        if local_path.exists():
+            logging.info("File already exists, skipping download: %s", local_path)
+            return
+
         temp_path = Path(str(local_path) + ".part")
         for attempt in range(retries):
             try:
