@@ -1,1 +1,1 @@
-from .clipper import PopulationRasterClipper
+from .popclip import PopulationRasterClipper
