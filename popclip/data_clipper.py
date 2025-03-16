@@ -6,6 +6,16 @@ import geopandas as gpd
 
 class DataClipper:
     def __init__(self, yaml_config_path, geojson_clip_path, output_folder, download=True):
+        # Set up logger first
+        self.logger = logging.getLogger(__name__)
+        if not self.logger.handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s [%(levelname)s] %(message)s",
+                handlers=[logging.StreamHandler()]
+            )
+        self.logger.info("Initializing DataClipper.")
+        
         self.yaml_config_path = os.path.abspath(yaml_config_path)
         self.geojson_clip_path = os.path.abspath(geojson_clip_path)
         self.output_folder = os.path.abspath(output_folder)
@@ -13,9 +23,7 @@ class DataClipper:
         self.data_folder = os.path.abspath("data")
         os.makedirs(self.data_folder, exist_ok=True)
         self.geojson = self.load_geojson(self.geojson_clip_path)
-        self.lock = None
         self.download = download
-        self.logger = logging.getLogger(__name__)
         self.logger.info("Initialization complete. Global download enabled: %s", self.download)
 
     def load_geojson(self, geojson_path):
@@ -76,7 +84,6 @@ class DataClipper:
         return extract_dir
 
     def clip_vector(self, input_path, output_path):
-        # Ensure output file ends with .geojson
         if not output_path.endswith(".geojson"):
             output_path += ".geojson"
         if os.path.exists(output_path):
@@ -152,7 +159,6 @@ class DataClipper:
             dataset_download = data.get("download", self.download)
             self.logger.info("Processing dataset: %s (download=%s)", name, dataset_download)
 
-            # Determine final output location from YAML data_save_filename.
             data_save_filename = data.get("data_save_filename")
             if data_save_filename:
                 final_output = os.path.join(self.output_folder, data_save_filename)
@@ -161,15 +167,13 @@ class DataClipper:
                 final_output = os.path.join(self.output_folder, f"{name}_clipped")
                 os.makedirs(final_output, exist_ok=True)
 
-            # Determine input file location.
             input_filename = os.path.basename(path_or_url)
             input_path = os.path.join(self.data_folder, input_filename)
 
-            # If final output already exists, skip download step.
+            # If final output exists, skip download step.
             if data_save_filename and os.path.exists(final_output):
                 self.logger.info("Final output %s already exists; skipping download for dataset %s.", final_output, name)
             else:
-                # If remote file and not downloaded yet, attempt download.
                 if path_or_url.startswith("http") and not os.path.exists(input_path):
                     if dataset_download:
                         self.robust_download(path_or_url, input_path)
@@ -177,7 +181,6 @@ class DataClipper:
                         self.logger.info("Download flag is False for %s. Skipping dataset.", name)
                         return
 
-            # If the input is a ZIP, extract and get the valid file.
             if os.path.splitext(input_path)[1].lower() == ".zip":
                 extracted_dir = self.extract_zip(input_path)
                 input_path = next(itertools.chain(
@@ -191,7 +194,6 @@ class DataClipper:
                     return
 
             try:
-                # Process based on file extension.
                 ext = os.path.splitext(input_path)[1].lower()
                 if ext in [".tif", ".tiff", ".img", ".vrt"]:
                     if data_save_filename:
