@@ -1,4 +1,6 @@
 - name: population_2020
+  download: true
+  data_save_path: "./output/population_2020_clipped/ppp_2020_1km_Aggregated.tif"
   source: WorldPop
   path: https://data.worldpop.org/GIS/Population/Global_2000_2020/2020/0_Mosaicked/ppp_2020_1km_Aggregated.tif
   description: "Population raster data for 2020."
@@ -11,6 +13,8 @@
   license: "Other: See these Terms of Use."
 
 - name: population_2019
+  download: true
+  data_save_path: "./output/population_2019_clipped/ppp_2019_1km_Aggregated.tif"
   source: WorldPop
   path: https://data.worldpop.org/GIS/Population/Global_2000_2020/2019/0_Mosaicked/ppp_2019_1km_Aggregated.tif
   description: "Population raster data for 2019."
@@ -23,6 +27,8 @@
   license: "Other: See these Terms of Use."
 
 - name: population_2018
+  download: true
+  data_save_path: "./output/population_2018_clipped/ppp_2018_1km_Aggregated.tif"
   source: WorldPop
   path: https://data.worldpop.org/GIS/Population/Global_2000_2020/2018/0_Mosaicked/ppp_2018_1km_Aggregated.tif
   description: "Population raster data for 2018."
@@ -35,6 +41,8 @@
   license: "Other: See these Terms of Use."
 
 - name: watercourses_primary
+  download: true
+  data_save_path: "./output/watercourses_primary_clipped/primary.geojson"
   source: Humanitarian Data Exchange
   path: https://data.humdata.org/dataset/248e54c6-f113-4bd3-8083-a5d4a9eb5f79/resource/c49ef799-201f-45a0-a8ee-f9c35bdafa01/download/npl-watcrsl-hydro-25k-50k-sdn-wgs84-shp.zip
   description: "Primary watercourses dataset for Nepal."
@@ -47,6 +55,8 @@
   license: "Other: See these Terms of Use."
 
 - name: watercourses_secondary
+  download: true
+  data_save_path: "./output/watercourses_secondary_clipped/secondary.geojson"
   source: Humanitarian Data Exchange
   path: https://data.humdata.org/dataset/248e54c6-f113-4bd3-8083-a5d4a9eb5f79/resource/38765f7b-694c-4efa-b0b3-3982ce997eda/download/npl-watcrsa-hydro-25k-50k-sdn-wgs84-shp.zip
   description: "Secondary watercourses dataset for Nepal."

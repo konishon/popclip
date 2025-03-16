@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class DataClipper:
-    def __init__(self, yaml_config_path, geojson_clip_path, output_folder):
+    def __init__(self, yaml_config_path, geojson_clip_path, output_folder, download=True):
         self.yaml_config_path = Path(yaml_config_path)
         self.geojson_clip_path = Path(geojson_clip_path)
         self.output_folder = Path(output_folder)
@@ -24,7 +24,8 @@ class DataClipper:
         self.data_folder.mkdir(parents=True, exist_ok=True)
         self.geojson = self.load_geojson(self.geojson_clip_path)
         self.lock = threading.Lock()
-        logger.info("Initialization complete.")
+        self.download = download
+        logger.info("Initialization complete. Global download enabled: %s", self.download)
 
     def load_geojson(self, geojson_path):
         if not geojson_path.exists():
@@ -136,12 +137,19 @@ class DataClipper:
         def process_dataset(data):
             name = data.get("name")
             path_or_url = data.get("path")
-            logger.info("Processing dataset: %s", name)
+            # Use the per-dataset download flag if provided, otherwise use the global flag.
+            dataset_download = data.get("download", self.download)
+            logger.info("Processing dataset: %s (download=%s)", name, dataset_download)
 
             input_path = self.data_folder / Path(path_or_url).name
             if path_or_url.startswith("http") and not input_path.exists():
-                self.robust_download(path_or_url, input_path)
+                if dataset_download:
+                    self.robust_download(path_or_url, input_path)
+                else:
+                    logger.warning("Download disabled for dataset and file not found: %s", input_path)
+                    return
 
+            # If the file is a ZIP, extract it and find a suitable file (tif or shp)
             if input_path.suffix.lower() == ".zip":
                 extracted_dir = self.extract_zip(input_path)
                 input_path = next((f for f in extracted_dir.glob("*.tif") or extracted_dir.glob("*.shp")), None)
@@ -149,14 +157,26 @@ class DataClipper:
                     logger.warning("No valid files found in extracted ZIP: %s", input_path)
                     return
 
-            output_path = self.output_folder / f"{name}_clipped"
-            output_path.mkdir(parents=True, exist_ok=True)
+            # Use the save path from YAML if provided, otherwise create a default folder structure.
+            data_save_path = data.get("data_save_path")
+            if data_save_path:
+                output_path = Path(data_save_path)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                output_path = self.output_folder / f"{name}_clipped"
+                output_path.mkdir(parents=True, exist_ok=True)
 
             try:
                 if input_path.suffix.lower() in [".tif", ".tiff", ".img", ".vrt"]:
-                    self.clip_raster(input_path, output_path / f"{name}_clipped.tif")
+                    if data_save_path:
+                        self.clip_raster(input_path, output_path)
+                    else:
+                        self.clip_raster(input_path, output_path / f"{name}_clipped.tif")
                 elif input_path.suffix.lower() in [".shp", ".geojson", ".gpkg", ".kml"]:
-                    self.clip_vector(input_path, output_path / f"{name}_clipped.geojson")
+                    if data_save_path:
+                        self.clip_vector(input_path, output_path)
+                    else:
+                        self.clip_vector(input_path, output_path / f"{name}_clipped.geojson")
                 else:
                     logger.warning("Unsupported file format: %s", input_path)
             except Exception as e:
@@ -172,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("yaml_config", help="Path to YAML configuration file")
     parser.add_argument("geojson_clip", help="Path to GeoJSON clip file")
     parser.add_argument("output_folder", help="Output directory for clipped data")
-
+    
     args = parser.parse_args()
     clipper = DataClipper(args.yaml_config, args.geojson_clip, args.output_folder)
     clipper.process()
