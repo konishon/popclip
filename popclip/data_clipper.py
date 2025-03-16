@@ -1,12 +1,12 @@
 import os
 import logging
 import itertools
-from tqdm import tqdm
-import geopandas as gpd
 import shutil
 import yaml
+import geopandas as gpd
 import rasterio
 from rasterio.mask import mask
+from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 def get_logger():
@@ -162,27 +162,35 @@ class DataClipper:
             final_output = os.path.join(self.output_folder, data_save_filename if data_save_filename else f"{name}_clipped")
 
             os.makedirs(os.path.dirname(final_output), exist_ok=True)
-            input_filename = os.path.basename(path_or_url)
-            input_path = os.path.join(self.data_folder, input_filename)
 
-            if os.path.exists(final_output):
-                self.logger.info("Final output %s already exists; skipping dataset %s.", final_output, name)
-                return
+            if not path_or_url.startswith("http"):
+                input_path = os.path.abspath(path_or_url)
+                if not os.path.exists(input_path):
+                    self.logger.error("Local file not found: %s", input_path)
+                    return
+            else:
+                input_filename = os.path.basename(path_or_url)
+                input_path = os.path.join(self.data_folder, input_filename)
 
-            if path_or_url.startswith("http") and not os.path.exists(input_path):
-                if dataset_download:
+                if os.path.exists(final_output):
+                    self.logger.info("Final output %s already exists; skipping dataset %s.", final_output, name)
+                    return
+
+                if not os.path.exists(input_path) and dataset_download:
                     self.robust_download(path_or_url, input_path)
-                else:
-                    self.logger.info("Skipping download for dataset %s.", name)
+
+            if os.path.splitext(input_path)[1].lower() == ".zip":
+                extracted_dir = self.extract_zip(input_path)
+                input_path = next((os.path.join(extracted_dir, f) for f in os.listdir(extracted_dir) if f.lower().endswith((".tif", ".shp"))), None)
+                if not input_path:
+                    self.logger.warning("No valid files found in extracted ZIP for %s", name)
                     return
 
             ext = os.path.splitext(input_path)[1].lower()
-            if ext in [".tif", ".tiff", ".img", ".vrt"]:
+            if ext in [".tif", ".tiff"]:
                 self.clip_raster(input_path, f"{final_output}.tif")
-            elif ext in [".shp", ".geojson", ".gpkg", ".kml"]:
+            elif ext in [".shp", ".geojson"]:
                 self.clip_vector(input_path, f"{final_output}.geojson")
-            else:
-                self.logger.warning("Unsupported file format for %s: %s", name, input_path)
 
         with ThreadPoolExecutor() as executor:
             executor.map(process_dataset, datasets)
