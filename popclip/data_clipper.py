@@ -1,198 +1,213 @@
-import yaml
-import rasterio
-from rasterio.mask import mask
-import geopandas as gpd
-from pathlib import Path
-from tqdm import tqdm
-import shutil
+import os
 import logging
-import urllib.request
-import zipfile
-import threading
-from concurrent.futures import ThreadPoolExecutor
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+import itertools
+from tqdm import tqdm
+import geopandas as gpd
 
 class DataClipper:
     def __init__(self, yaml_config_path, geojson_clip_path, output_folder, download=True):
-        self.yaml_config_path = Path(yaml_config_path)
-        self.geojson_clip_path = Path(geojson_clip_path)
-        self.output_folder = Path(output_folder)
-        self.output_folder.mkdir(parents=True, exist_ok=True)
-        self.data_folder = Path("data")
-        self.data_folder.mkdir(parents=True, exist_ok=True)
+        self.yaml_config_path = os.path.abspath(yaml_config_path)
+        self.geojson_clip_path = os.path.abspath(geojson_clip_path)
+        self.output_folder = os.path.abspath(output_folder)
+        os.makedirs(self.output_folder, exist_ok=True)
+        self.data_folder = os.path.abspath("data")
+        os.makedirs(self.data_folder, exist_ok=True)
         self.geojson = self.load_geojson(self.geojson_clip_path)
-        self.lock = threading.Lock()
+        self.lock = None
         self.download = download
-        logger.info("Initialization complete. Global download enabled: %s", self.download)
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Initialization complete. Global download enabled: %s", self.download)
 
     def load_geojson(self, geojson_path):
-        if not geojson_path.exists():
-            logger.error("GeoJSON file not found: %s", geojson_path)
+        if not os.path.exists(geojson_path):
+            self.logger.error("GeoJSON file not found: %s", geojson_path)
             raise FileNotFoundError(f"GeoJSON file not found: {geojson_path}")
         try:
             gdf = gpd.read_file(geojson_path)
             if gdf.empty:
                 raise ValueError("GeoJSON file is empty.")
             if gdf.crs is None:
-                logger.warning("GeoJSON file has no CRS defined, assuming EPSG:4326")
+                self.logger.warning("GeoJSON file has no CRS defined, assuming EPSG:4326")
                 gdf.set_crs("EPSG:4326", inplace=True)
-            logger.info("GeoJSON successfully loaded.")
+            self.logger.info("GeoJSON successfully loaded.")
             return gdf
         except Exception as e:
-            logger.error("Error loading GeoJSON: %s", e)
+            self.logger.error("Error loading GeoJSON: %s", e)
             raise
 
     def robust_download(self, url, local_path, retries=3):
-        if local_path.exists():
-            logger.info("File already exists, skipping download: %s", local_path)
+        if os.path.exists(local_path):
+            self.logger.info("File already exists, skipping download: %s", local_path)
             return
 
-        temp_path = local_path.with_suffix('.part')
+        temp_path = local_path + '.part'
         for attempt in range(retries):
             try:
+                import urllib.request
                 req = urllib.request.Request(url)
                 with urllib.request.urlopen(req) as response:
                     total_size = int(response.headers.get('content-length', 0))
                     with open(temp_path, "wb") as f, tqdm(
-                        total=total_size, unit='B', unit_scale=True, desc=local_path.name
+                        total=total_size, unit='B', unit_scale=True, desc=os.path.basename(local_path)
                     ) as bar:
-                        while chunk := response.read(8192):
+                        while True:
+                            chunk = response.read(8192)
+                            if not chunk:
+                                break
                             f.write(chunk)
                             bar.update(len(chunk))
-                shutil.move(temp_path, local_path)
-                logger.info("Download complete: %s", local_path)
+                os.replace(temp_path, local_path)
+                self.logger.info("Download complete: %s", local_path)
                 return
             except Exception as e:
-                logger.warning("Attempt %d failed: %s", attempt + 1, e)
+                self.logger.warning("Attempt %d failed: %s", attempt + 1, e)
                 if attempt == retries - 1:
                     raise
 
     def extract_zip(self, zip_path):
-        extract_dir = zip_path.with_suffix('')
-        if extract_dir.exists() and any(extract_dir.iterdir()):
-            logger.info("ZIP already extracted, skipping: %s", extract_dir)
+        import zipfile
+        extract_dir = os.path.splitext(zip_path)[0]
+        if os.path.exists(extract_dir) and os.listdir(extract_dir):
+            self.logger.info("ZIP already extracted, skipping: %s", extract_dir)
             return extract_dir
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_dir)
-        logger.info("Extracted ZIP file to: %s", extract_dir)
+        self.logger.info("Extracted ZIP file to: %s", extract_dir)
         return extract_dir
 
     def clip_vector(self, input_path, output_path):
-        clipped_file = output_path.with_suffix('.geojson')
-        if clipped_file.exists():
-            logger.info("Vector file already clipped, skipping: %s", clipped_file)
+        # Ensure output file ends with .geojson
+        if not output_path.endswith(".geojson"):
+            output_path += ".geojson"
+        if os.path.exists(output_path):
+            self.logger.info("Vector file already clipped, skipping: %s", output_path)
             return
         
-        logger.info("Clipping vector data: %s", input_path)
-        gdf = gpd.read_file(input_path)
+        self.logger.info("Clipping vector data: %s", input_path)
+        try:
+            gdf = gpd.read_file(input_path)
+        except Exception as e:
+            self.logger.error("Failed to read vector file %s: %s", input_path, e)
+            return
+        
         if gdf.crs is None:
-            logger.warning("Vector file has no CRS, assuming EPSG:4326")
+            self.logger.warning("Vector file has no CRS, assuming EPSG:4326")
             gdf.set_crs("EPSG:4326", inplace=True)
         if gdf.crs != self.geojson.crs:
             gdf = gdf.to_crs(self.geojson.crs)
         
         clipped = gdf.clip(self.geojson)
         if clipped.empty:
-            logger.warning("Clipped vector data is empty: %s", input_path)
+            self.logger.warning("Clipped vector data is empty: %s", input_path)
         else:
-            clipped.to_file(clipped_file, driver="GeoJSON")
-        logger.info("Vector data clipped and saved: %s", clipped_file)
+            try:
+                clipped.to_file(output_path, driver="GeoJSON")
+                self.logger.info("Vector data clipped and saved: %s", output_path)
+            except Exception as e:
+                self.logger.error("Error writing clipped vector file %s: %s", output_path, e)
 
     def clip_raster(self, input_path, output_path):
-        if output_path.exists():
-            logger.info("Raster file already clipped, skipping: %s", output_path)
+        if os.path.exists(output_path):
+            self.logger.info("Raster file already clipped, skipping: %s", output_path)
             return
         
-        logger.info("Clipping raster data: %s", input_path)
-        with rasterio.open(input_path) as src:
-            if self.geojson.crs != src.crs:
-                clip_geom = self.geojson.to_crs(src.crs)
-            else:
-                clip_geom = self.geojson
+        self.logger.info("Clipping raster data: %s", input_path)
+        try:
+            import rasterio
+            from rasterio.mask import mask
+            with rasterio.open(input_path) as src:
+                if self.geojson.crs != src.crs:
+                    clip_geom = self.geojson.to_crs(src.crs)
+                else:
+                    clip_geom = self.geojson
 
-            out_image, out_transform = mask(src, clip_geom.geometry, crop=True)
-            if out_image.size == 0:
-                logger.warning("Clipped raster data is empty: %s", input_path)
-                return
+                out_image, out_transform = mask(src, clip_geom.geometry, crop=True)
+                if out_image.size == 0:
+                    self.logger.warning("Clipped raster data is empty: %s", input_path)
+                    return
 
-            clipped_meta = src.meta.copy()
-            clipped_meta.update({
-                "driver": "GTiff",
-                "height": out_image.shape[1],
-                "width": out_image.shape[2],
-                "transform": out_transform
-            })
+                clipped_meta = src.meta.copy()
+                clipped_meta.update({
+                    "driver": "GTiff",
+                    "height": out_image.shape[1],
+                    "width": out_image.shape[2],
+                    "transform": out_transform
+                })
 
-        with rasterio.open(output_path, "w", **clipped_meta) as dest:
-            dest.write(out_image)
-        logger.info("Raster clipped and saved at %s", output_path)
+            with rasterio.open(output_path, "w", **clipped_meta) as dest:
+                dest.write(out_image)
+            self.logger.info("Raster clipped and saved at %s", output_path)
+        except Exception as e:
+            self.logger.error("Error clipping raster %s: %s", input_path, e)
 
     def process(self):
-        logger.info("Processing datasets from YAML configuration.")
+        self.logger.info("Processing datasets from YAML configuration.")
+        import yaml
         with open(self.yaml_config_path, 'r') as f:
             datasets = yaml.safe_load(f)
 
         def process_dataset(data):
             name = data.get("name")
             path_or_url = data.get("path")
-            # Use the per-dataset download flag if provided, otherwise use the global flag.
             dataset_download = data.get("download", self.download)
-            logger.info("Processing dataset: %s (download=%s)", name, dataset_download)
+            self.logger.info("Processing dataset: %s (download=%s)", name, dataset_download)
 
-            input_path = self.data_folder / Path(path_or_url).name
-            if path_or_url.startswith("http") and not input_path.exists():
-                if dataset_download:
-                    self.robust_download(path_or_url, input_path)
-                else:
-                    logger.warning("Download disabled for dataset and file not found: %s", input_path)
-                    return
-
-            # If the file is a ZIP, extract it and find a suitable file (tif or shp)
-            if input_path.suffix.lower() == ".zip":
-                extracted_dir = self.extract_zip(input_path)
-                input_path = next((f for f in extracted_dir.glob("*.tif") or extracted_dir.glob("*.shp")), None)
-                if not input_path:
-                    logger.warning("No valid files found in extracted ZIP: %s", input_path)
-                    return
-
-            # Use the save path from YAML if provided, otherwise create a default folder structure.
-            data_save_path = data.get("data_save_path")
-            if data_save_path:
-                output_path = Path(data_save_path)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Determine final output location from YAML data_save_filename.
+            data_save_filename = data.get("data_save_filename")
+            if data_save_filename:
+                final_output = os.path.join(self.output_folder, data_save_filename)
+                os.makedirs(os.path.dirname(final_output), exist_ok=True)
             else:
-                output_path = self.output_folder / f"{name}_clipped"
-                output_path.mkdir(parents=True, exist_ok=True)
+                final_output = os.path.join(self.output_folder, f"{name}_clipped")
+                os.makedirs(final_output, exist_ok=True)
+
+            # Determine input file location.
+            input_filename = os.path.basename(path_or_url)
+            input_path = os.path.join(self.data_folder, input_filename)
+
+            # If final output already exists, skip download step.
+            if data_save_filename and os.path.exists(final_output):
+                self.logger.info("Final output %s already exists; skipping download for dataset %s.", final_output, name)
+            else:
+                # If remote file and not downloaded yet, attempt download.
+                if path_or_url.startswith("http") and not os.path.exists(input_path):
+                    if dataset_download:
+                        self.robust_download(path_or_url, input_path)
+                    else:
+                        self.logger.info("Download flag is False for %s. Skipping dataset.", name)
+                        return
+
+            # If the input is a ZIP, extract and get the valid file.
+            if os.path.splitext(input_path)[1].lower() == ".zip":
+                extracted_dir = self.extract_zip(input_path)
+                input_path = next(itertools.chain(
+                    (f for f in os.listdir(extracted_dir) if f.lower().endswith(".tif")),
+                    (f for f in os.listdir(extracted_dir) if f.lower().endswith(".shp"))
+                ), None)
+                if input_path:
+                    input_path = os.path.join(extracted_dir, input_path)
+                else:
+                    self.logger.warning("No valid files found in extracted ZIP for %s", name)
+                    return
 
             try:
-                if input_path.suffix.lower() in [".tif", ".tiff", ".img", ".vrt"]:
-                    if data_save_path:
-                        self.clip_raster(input_path, output_path)
+                # Process based on file extension.
+                ext = os.path.splitext(input_path)[1].lower()
+                if ext in [".tif", ".tiff", ".img", ".vrt"]:
+                    if data_save_filename:
+                        self.clip_raster(input_path, final_output)
                     else:
-                        self.clip_raster(input_path, output_path / f"{name}_clipped.tif")
-                elif input_path.suffix.lower() in [".shp", ".geojson", ".gpkg", ".kml"]:
-                    if data_save_path:
-                        self.clip_vector(input_path, output_path)
+                        self.clip_raster(input_path, os.path.join(final_output, f"{name}_clipped.tif"))
+                elif ext in [".shp", ".geojson", ".gpkg", ".kml"]:
+                    if data_save_filename:
+                        self.clip_vector(input_path, final_output)
                     else:
-                        self.clip_vector(input_path, output_path / f"{name}_clipped.geojson")
+                        self.clip_vector(input_path, os.path.join(final_output, f"{name}_clipped.geojson"))
                 else:
-                    logger.warning("Unsupported file format: %s", input_path)
+                    self.logger.warning("Unsupported file format for %s: %s", name, input_path)
             except Exception as e:
-                logger.error("Error processing %s: %s", name, e)
+                self.logger.error("Error processing %s: %s", name, e)
 
+        from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor() as executor:
             executor.map(process_dataset, datasets)
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Clip raster and vector data using GeoJSON boundary.")
-    parser.add_argument("yaml_config", help="Path to YAML configuration file")
-    parser.add_argument("geojson_clip", help="Path to GeoJSON clip file")
-    parser.add_argument("output_folder", help="Output directory for clipped data")
-    
-    args = parser.parse_args()
-    clipper = DataClipper(args.yaml_config, args.geojson_clip, args.output_folder)
-    clipper.process()
